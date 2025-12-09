@@ -4,15 +4,7 @@ import scipy as sp
 import random
 import copy
 import networkx as nx
-
-# 100 by 100 puplate with 400 people 
-#values are node number and key is dictionary mapping neighbor node to (mean, std)
-G = {}
-
-matching = []
-
-threshold = 0
-
+import time
 
 def fw_sum(mu, var):
     num = 0
@@ -26,10 +18,15 @@ def fw_sum(mu, var):
 
 def prob_fast_enough(mu, var, threshold):
     point = ((math.log(threshold)- mu)/math.sqrt(var))
+
     return sp.stats.norm.cdf(point, 0, 1)
 
-def fw_right_cvar(mu, var, p): #use this for cvar_func in utility call
-    return np.exp(mu + (var/2)) * ((1 - sp.stats.norm.cdf(sp.stats.norm.ppf(p) - math.sqrt(var)))/(1-p))
+def fw_right_cvar(mu, var, p):  #use this for cvar_func in utility call
+    if p == 1:
+        print("probability was 1")
+        return 0
+    else:
+        return np.exp(mu + (var/2)) * ((1 - sp.stats.norm.cdf(sp.stats.norm.ppf(p) - math.sqrt(var)))/(1-p))
 
 def get_utility(stats, threshold, fast_func, cvar_func, weights):
     p = fast_func(*stats, threshold)
@@ -84,8 +81,8 @@ def generate_graph(grid_length, num_nodes, decay_factor, sigma_min, sigma_max):
         for v in range(u + 1, num_nodes):
             birds_eye = np.linalg.norm(G_coord[u] - G_coord[v], 2)
             if np.random.uniform(0, 1) < np.exp(-birds_eye/(decay_factor* (2*grid_length))): #realistic assumption about road presence. decay factor is between 0 and 1. 1 is extremely unreasonable
-                mu = float(np.linalg.norm(G_coord[u] - G_coord[v], 1))
                 sigma = float(np.random.uniform(sigma_min, sigma_max))
+                mu = math.log(float(np.linalg.norm(G_coord[u] - G_coord[v], 1))) - (sigma/2) #choose mu so that the mean travel time is the taxicab distance
                 G_nx.add_edge(u, v, weight = mu)
                 G[u][v] = (mu, sigma**2)
                 G[v][u] = (mu, sigma**2)
@@ -109,13 +106,13 @@ def metropolis_hastings(G, G_nx, threshold, fast_func, cvar_func, weights, warmu
     odd_degree_nodes = [node for (node, degree) in G_nx.degree() if degree%2 == 1]
     matching = {}
     num_pairs = int(len(odd_degree_nodes)/2)
+    print(num_pairs)
     for i in range(num_pairs):
         matching[odd_degree_nodes[i]] = odd_degree_nodes[i + num_pairs]
 
     matchings = []
 
     for iter in range(iter_count):
-        print(iter)
         stats = get_matching_distr(G, G_nx, matching)
         utility = get_utility(stats, threshold, fast_func, cvar_func, weights)
         new_matching = propose_matching(matching)
@@ -129,9 +126,42 @@ def metropolis_hastings(G, G_nx, threshold, fast_func, cvar_func, weights, warmu
 
     return matchings
         
-(G, G_nx) = generate_graph(100, 400, 0.1, 0.3, 0.5)
 
-matchings = metropolis_hastings(G, G_nx, 10000, prob_fast_enough, fw_right_cvar, [1, 0.01], 100, 400)
+def test_weights(G, G_nx, weights, warmup, itercount, threshold):
 
-print(matchings)
+    
+    start_time = time.time()
+    matchings = metropolis_hastings(G, G_nx, threshold, prob_fast_enough, fw_right_cvar, weights, warmup, itercount)
+    end_time = time.time()
+    seen = set()
+    distinct_matchings = []
+    for matching in matchings:
+        t = tuple(sorted(matching.items()))
+        if t not in seen:
+            seen.add(t)
+            distinct_matchings.append(matching)
+    num_matchings = len(distinct_matchings)
+    run_time = end_time-start_time
+    avg_run_time = run_time/num_matchings
+    prob = 0
+    cvar = 0
+    for matching in distinct_matchings:
+        stats = get_matching_distr(G, G_nx, matching)
+        #print(np.exp(stats[0]+ (stats[1]/2)))
+        #print(threshold)
+        #print(prob_fast_enough(*stats, threshold))
+        curr_prob = prob_fast_enough(*stats, threshold)
+        prob += curr_prob
+        cvar += fw_right_cvar(*stats, curr_prob)
+    
+    avg_prob = prob/num_matchings
+    avg_cvar = cvar/num_matchings
+
+    return (avg_prob, avg_cvar, avg_run_time, num_matchings)
+
+(G, G_nx) = generate_graph(100, 400, 0.2, 0.5, 0.7)
+
+
+print(test_weights(G, G_nx, [0.1, 0], 200, 1000, 7500)) 
+print(test_weights(G, G_nx, [100, 0], 200, 1000, 7500))
 
