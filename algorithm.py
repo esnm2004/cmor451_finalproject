@@ -31,7 +31,8 @@ def fw_right_cvar(mu, var, p):  #use this for cvar_func in utility call
 def get_utility(stats, threshold, fast_func, cvar_func, weights):
     p = fast_func(*stats, threshold)
     cvar = cvar_func(*stats, p)
-    return weights[0]*p - weights[1]*cvar
+    # print(cvar)
+    return weights[0]*p - weights[1]*(cvar/threshold)
     
 
 def propose_matching(matching):
@@ -64,7 +65,7 @@ def get_matching_distr(G, G_nx, matching):
 
 def generate_graph(grid_length, num_nodes, decay_factor, sigma_min, sigma_max):
    
-    rng = np.random.default_rng(None)
+    rng = np.random.default_rng(3)
     G = {u:{} for u in range(num_nodes)}
     G_coord = {}
 
@@ -93,8 +94,8 @@ def generate_graph(grid_length, num_nodes, decay_factor, sigma_min, sigma_max):
         u = random.choice(list(components[0]))
         v = random.choice(list(components[1]))
         mu = float(np.linalg.norm(G_coord[u] - G_coord[v], 1))
-        G_nx.add_edge(u, v, mu)
-        sigma = float(np.uniform(sigma_min, sigma_max))
+        G_nx.add_edge(u, v, weight=mu)                                            # Fixed bug, didn't have weight=mu
+        sigma = float(np.random.uniform(sigma_min, sigma_max))                    # Fixed bug, didn't have .random
         G[u][v] = (mu, sigma**2)
         G[v][u] = (mu, sigma**2)
 
@@ -159,9 +160,13 @@ def test_weights(G, G_nx, weights, warmup, itercount, threshold):
 
     return (avg_prob, avg_cvar, avg_run_time, num_matchings)
 
-(G, G_nx) = generate_graph(100, 400, 0.2, 0.5, 0.7)
+(G, G_nx) = generate_graph(100, 400, 0.05, 0.5, 0.7)
 
 
-print(test_weights(G, G_nx, [0.1, 0], 200, 1000, 7500)) 
-print(test_weights(G, G_nx, [100, 0], 200, 1000, 7500))
+# print(test_weights(G, G_nx, [1, 0.5], 200, 1000, 7500))
+# print(test_weights(G, G_nx, [100, 90], 200, 1000, 7500))
+
+# for warmup in [100, 200, 300, 400, 500, 600, 700, 800]:
+#     print("Warmup Period:", warmup)
+#     print(test_weights(G, G_nx, [1, 0.5], warmup, itercount=2000, threshold=7500))
 
